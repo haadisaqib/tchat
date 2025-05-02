@@ -32,7 +32,8 @@ type Room struct {
 	roomID       int
 	messages     []string
 	chatters     []*Chatter
-	chatHistory  string
+	//TODO
+	chatHistory string
 }
 
 var server = &Server{
@@ -192,17 +193,9 @@ func newRoom(capacity int) *Room {
 		if _, exists := server.rooms[roomID]; !exists {
 			//print
 			fmt.Printf("New room created with ID %d\n", roomID)
-			//create json TODO
-			createChatHistory(roomID)
 			return &Room{capacity: capacity, roomID: roomID, chatters: []*Chatter{}}
 		}
 	}
-}
-
-func createChatHistory(roomID int) string {
-	//Check if roomID.json exists in  ./rooms
-	//If it does not exist, create it
-	return fmt.Sprintf("./rooms/%d.json", roomID)
 }
 
 func joinRoom(room *Room, chatter *Chatter) {
