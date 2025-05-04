@@ -3,9 +3,10 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"math/rand"
 	"net"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -24,15 +25,47 @@ type ChatMessage struct {
 	Timestamp string `json:"timestamp"`
 }
 
-func newChatter(name string, conn net.Conn) *Chatter {
-	rand.Seed(time.Now().UnixNano())
-	for {
-		uuid := rand.Intn(999999-100000) + 100000
-		if _, exists := server.chatters[uuid]; !exists {
-			return &Chatter{UUID: uuid, DisplayName: name, connectedTo: 0, Conn: conn}
-		}
+func newChatter(uuid int, name string, conn net.Conn) *Chatter {
+	if _, exists := server.chatters[uuid]; exists {
+		fmt.Fprintf(conn, "Duplicate UUID detected. You are already connected.\n")
+		return nil
+	}
+	return &Chatter{
+		UUID:        uuid,
+		DisplayName: name,
+		connectedTo: 0,
+		Conn:        conn,
 	}
 }
+
+func UUIDgenerator(conn net.Conn) int {
+	ip := conn.RemoteAddr()
+	ipString := ip.String()
+	lastColon := strings.LastIndex(ipString, ":")
+	if lastColon != -1 {
+		ipString = ipString[:lastColon]
+	}
+	ipString = strings.Trim(ipString, "[]")
+	ipWithoutPeriods := strings.ReplaceAll(ipString, ".", "")
+	// Convert the ipwithout periods to an integer
+	ipInt, err := strconv.Atoi(ipWithoutPeriods)
+	if err != nil {
+		fmt.Println("Error converting IP to integer:", err)
+		return 0
+	}
+	// Check if the integer is even or odd
+	if ipInt%2 == 0 {
+		ipInt += 10
+	} else {
+		ipInt += 11
+	}
+	return ipInt
+}
+
+// example:
+//127.0.0.1 = 127001 % 2 == 1 therefore + 11 = 127012
+//198.1.168.254 = 1981168254 % 2 == 0 therefore + 10 = 1981168264
+//10.10.10 = 101010 % 2 == 0 therefore + 10 = 101020
 
 func saveMessageToRoom(roomID int, msg ChatMessage) {
 	path := fmt.Sprintf("./rooms/%d.json", roomID)

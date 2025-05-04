@@ -13,19 +13,31 @@ import (
 func registerChatter(scanner *bufio.Scanner, conn net.Conn) *Chatter {
 	if scanner.Scan() {
 		input := scanner.Text()
-		parts := strings.SplitN(input, "|", 3)
-		if len(parts) != 3 {
-			fmt.Fprintln(conn, "Invalid format. Expected: displayName|choice|roomData")
+		fmt.Println("Received from client:", input)
+
+		parts := strings.SplitN(input, "|", 4)
+		if len(parts) != 4 {
+			fmt.Fprintln(conn, "Invalid format. Expected: UUID|displayName|choice|roomData")
 			return nil
 		}
 
-		displayName := strings.TrimSpace(parts[0])
-		choice := strings.TrimSpace(parts[1])
-		roomData := strings.TrimSpace(parts[2])
+		uuidStr := strings.TrimSpace(parts[0])
+		displayName := strings.TrimSpace(parts[1])
+		choice := strings.TrimSpace(parts[2])
+		roomData := strings.TrimSpace(parts[3])
 
-		chatter := newChatter(displayName, conn)
+		uuid, err := strconv.Atoi(uuidStr)
+		if err != nil {
+			fmt.Fprintln(conn, "Invalid UUID format. Must be a number.")
+			return nil
+		}
+
+		chatter := newChatter(uuid, displayName, conn)
+		if chatter == nil {
+			return nil
+		}
+
 		server.chatters[chatter.UUID] = chatter
-
 		chatter.tempChoice = choice
 		chatter.tempRoomData = roomData
 
