@@ -111,59 +111,49 @@ func main() {
 		choice = strings.TrimSpace(choice)
 	}
 
-	var finalMessage string
+	clientID, err := LoadOrCreateClientID()
+	if err != nil {
+		fmt.Println("Failed to load client ID:", err)
+		return
+	}
 
+	var roomData string
 	if choice == "1" {
 		centerPrint(colorText("Enter room capacity (MAX: 20):", Nord3))
 		fmt.Print("> ")
 
-		var roomCapacity string
 		var capInt int
-		var err error
-
 		for {
-			roomCapacity, _ = reader.ReadString('\n')
-			roomCapacity = strings.TrimSpace(roomCapacity)
-			capInt, err = strconv.Atoi(roomCapacity)
-
+			roomData, _ = reader.ReadString('\n')
+			roomData = strings.TrimSpace(roomData)
+			capInt, err = strconv.Atoi(roomData)
 			if err == nil && capInt >= 1 && capInt <= 20 {
 				break
 			}
-
 			centerPrint(colorText("Invalid room capacity. Must be a number from 1 to 20.", Nord11))
 			fmt.Print("> ")
 		}
-
-		// Format: displayName|1|capacity
-		finalMessage = fmt.Sprintf("%s|1|%s", displayName, roomCapacity)
-
 	} else if choice == "2" {
-		// Join room flow
 		centerPrint(colorText("Enter room ID to join:", Nord3))
 		fmt.Print("> ")
-		roomID, _ := reader.ReadString('\n')
-		roomID = strings.TrimSpace(roomID)
-
-		// Format: displayName|2|roomID
-		finalMessage = fmt.Sprintf("%s|2|%s", displayName, roomID)
+		roomData, _ = reader.ReadString('\n')
+		roomData = strings.TrimSpace(roomData)
 	}
 
-	// Send full message after all inputs are collected
+	finalMessage := fmt.Sprintf("%d|%s|%s|%s", clientID, displayName, choice, roomData)
 	_, err = fmt.Fprintln(conn, finalMessage)
 	if err != nil {
 		fmt.Println("Send error:", err)
 		return
 	}
 
-	// Start reading messages from server
 	go func() {
-		serverReader := bufio.NewScanner(conn)
-		for serverReader.Scan() {
-			fmt.Println(serverReader.Text())
+		scanner := bufio.NewScanner(conn)
+		for scanner.Scan() {
+			fmt.Println(scanner.Text())
 		}
 	}()
 
-	// Start sending user inputs to server
 	for {
 		userInput, _ := reader.ReadString('\n')
 		userInput = strings.TrimSpace(userInput)
