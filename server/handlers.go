@@ -1,132 +1,74 @@
+// handlers.go
 package main
 
 import (
 	"bufio"
 	"fmt"
 	"net"
-	"strconv"
 	"strings"
 )
 
-// ====== Register Chatter ======
+/*
+This file exists **only** for legacy CLI / telnet clients.
+The browser frontend talks through WebSockets and never hits this code.
 
-func registerChatter(scanner *bufio.Scanner, conn net.Conn) *Chatter {
-	if scanner.Scan() {
-		input := scanner.Text()
-		fmt.Println("Received from client:", input)
+If you never plan on supporting plain‑TCP clients again, feel free
+to delete handlers.go and the TCP portions of the project.
+*/
 
-		parts := strings.SplitN(input, "|", 4)
-		if len(parts) != 4 {
-			fmt.Fprintln(conn, "Invalid format. Expected: UUID|displayName|choice|roomData")
-			return nil
-		}
-
-		uuidStr := strings.TrimSpace(parts[0])
-		displayName := strings.TrimSpace(parts[1])
-		choice := strings.TrimSpace(parts[2])
-		roomData := strings.TrimSpace(parts[3])
-
-		uuid, err := strconv.Atoi(uuidStr)
-		if err != nil {
-			fmt.Fprintln(conn, "Invalid UUID format. Must be a number.")
-			return nil
-		}
-
-		chatter := newChatter(uuid, displayName, conn)
-		if chatter == nil {
-			return nil
-		}
-
-		server.chatters[chatter.UUID] = chatter
-		chatter.tempChoice = choice
-		chatter.tempRoomData = roomData
-
-		fmt.Printf("Registered: %s (UUID %d)\n", chatter.DisplayName, chatter.UUID)
-		return chatter
+// registerChatter reads a single line:
+//
+//	UUID|displayName|choice|roomData
+//
+// and boots the connection if the format is wrong.
+func registerChatter(sc *bufio.Scanner, conn net.Conn) *Chatter {
+	if !sc.Scan() {
+		return nil
 	}
-	return nil
-}
-
-// ====== Handle Join / Create Room ======
-
-func handleJoinOrCreate(scanner *bufio.Scanner, chatter *Chatter, conn net.Conn) *Room {
-	choice := chatter.tempChoice
-	roomData := chatter.tempRoomData
-
-	if choice == "1" {
-		capacity, err := strconv.Atoi(roomData)
-		if err != nil || capacity < 1 || capacity > 20 {
-			fmt.Fprintln(conn, "Invalid room capacity. Must be 1–20.")
-			return nil
-		}
-		room := newRoom(capacity)
-		server.rooms[room.roomID] = room
-		joinRoom(room, chatter)
-		fmt.Fprintf(conn, "Room created with ID %d.\n", room.roomID)
-		return room
-
-	} else if choice == "2" {
-		for {
-			roomID, err := strconv.Atoi(roomData)
-			if err != nil {
-				fmt.Fprintln(conn, "Invalid room ID. Please enter a number:")
-			} else {
-				room, exists := server.rooms[roomID]
-				if exists {
-					if isRoomFull(room) {
-						fmt.Fprintln(conn, "Room is full. Try another room:")
-					} else {
-						joinRoom(room, chatter)
-						fmt.Fprintf(conn, "You have joined room %d.\n", roomID)
-						return room
-					}
-				} else {
-					fmt.Fprintf(conn, "Room %d does not exist. Try again:\n", roomID)
-				}
-			}
-
-			// Prompt for new input
-			fmt.Fprint(conn, "> ")
-			if !scanner.Scan() {
-				return nil
-			}
-			roomData = strings.TrimSpace(scanner.Text())
-		}
+	line := sc.Text()
+	parts := strings.SplitN(line, "|", 4)
+	if len(parts) != 4 {
+		fmt.Fprintln(conn, "Invalid format. Expected: UUID|displayName|choice|roomData")
+		return nil
 	}
 
-	fmt.Fprintln(conn, "Invalid choice.")
-	return nil
-}
+	uuid := strings.TrimSpace(parts[0])
+	name := strings.TrimSpace(parts[1])
 
-// ====== Chat Loop ======
-
-func handleChatLoop(scanner *bufio.Scanner, chatter *Chatter, room *Room, conn net.Conn) {
-	for scanner.Scan() {
-		message := scanner.Text()
-		fmt.Println("Message from", chatter.DisplayName, ":", message)
-		sendMessage(chatter, room, message)
+	ch := newChatter(uuid, name, conn)
+	if ch == nil {
+		return nil // duplicate UUID message already sent
 	}
+
+	// Preserve user’s intention so the CLI flow works
+	ch.tempChoice = strings.TrimSpace(parts[2])   // "1" create, "2" join
+	ch.tempRoomData = strings.TrimSpace(parts[3]) // capacity or roomID
+
+	server.chatters[ch.UUID] = ch
+	fmt.Printf("Registered CLI chatter %s (%s)\n", ch.DisplayName, ch.UUID)
+	return ch
 }
 
-// ====== Disconnect Cleanup ======
-
-func handleDisconnect(chatter *Chatter, room *Room) {
-	if room != nil && chatter.connectedTo == room.roomID {
+func handleDisconnect(ch *Chatter, room *Room) {
+	if room != nil && ch.connectedTo == room.roomID {
 		room.numOfChatter--
+		// rebuild active‑chatter slice
 		newList := []*Chatter{}
 		for _, c := range room.chatters {
-			if c.UUID != chatter.UUID {
+			if c.UUID != ch.UUID {
 				newList = append(newList, c)
 			}
 		}
 		room.chatters = newList
-		fmt.Printf("Chatter %d left room %d\n", chatter.UUID, room.roomID)
+
+		fmt.Printf("Chatter %s left room %d\n", ch.UUID, room.roomID)
+
 		if room.numOfChatter == 0 {
 			delete(server.rooms, room.roomID)
 			deleteChatHistory(room.roomID)
-			fmt.Printf("Room %d deleted\n", room.roomID)
+			fmt.Printf("Room %d deleted (empty)\n", room.roomID)
 		}
 	}
-	delete(server.chatters, chatter.UUID)
-	fmt.Printf("Chatter %d deleted from server\n", chatter.UUID)
+	delete(server.chatters, ch.UUID)
+	fmt.Printf("Chatter %s removed from server\n", ch.UUID)
 }

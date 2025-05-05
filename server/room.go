@@ -1,3 +1,4 @@
+// room.go
 package main
 
 import (
@@ -6,6 +7,15 @@ import (
 	"time"
 )
 
+/*
+Room represents a single chat room.
+
+capacity      – max simultaneous users (1‑20)
+numOfChatter  – current user count
+roomID        – 5‑digit random ID (unique per live server)
+chatters      – slice of *Chatter currently inside
+chatHistory   – path to the room’s JSON history file on disk
+*/
 type Room struct {
 	capacity     int
 	numOfChatter int
@@ -14,46 +24,64 @@ type Room struct {
 	chatHistory  string
 }
 
+/* ------------------------------------------------------------------ */
+/* Room helpers                                                       */
+/* ------------------------------------------------------------------ */
+
+// newRoom creates a room with a unique 5‑digit ID and prepares its
+// on‑disk history file.
 func newRoom(capacity int) *Room {
 	rand.Seed(time.Now().UnixNano())
+
 	for {
-		roomID := rand.Intn(99999-10000) + 10000
-		if _, exists := server.rooms[roomID]; !exists {
-			//print
-			fmt.Printf("New room created with ID %d\n", roomID)
-			//create json TODO
-			chatHistory, err := GetOrCreateChatHistory(roomID)
+		id := rand.Intn(99999-10000) + 10000 // 10000‑99999
+		if _, clash := server.rooms[id]; !clash {
+
+			hFile, err := GetOrCreateChatHistory(id)
 			if err != nil {
-				fmt.Printf("Error creating chat history: %v\n", err)
+				fmt.Printf("Error creating history for room %d: %v\n", id, err)
 				return nil
 			}
-			fmt.Printf("Chat history file route is %s\n", chatHistory)
-			return &Room{capacity: capacity, roomID: roomID, chatters: []*Chatter{}, chatHistory: chatHistory}
+
+			fmt.Printf("New room %d (cap=%d) created\n", id, capacity)
+			return &Room{
+				capacity:     capacity,
+				numOfChatter: 0,
+				roomID:       id,
+				chatters:     []*Chatter{},
+				chatHistory:  hFile,
+			}
 		}
 	}
 }
 
-func joinRoom(room *Room, chatter *Chatter) {
-	//check if room full
-	if isRoomFull(room) {
-		fmt.Println("Room is full")
+// joinRoom adds a chatter, prints / logs a summary, and dumps history to stdout.
+// (The WebSocket handler sends the history back to the browser.)
+func joinRoom(r *Room, ch *Chatter) {
+	if isRoomFull(r) {
+		fmt.Printf("Room %d is full (cap=%d)\n", r.roomID, r.capacity)
 		return
 	}
-	room.numOfChatter++
-	room.chatters = append(room.chatters, chatter)
-	chatter.connectedTo = room.roomID
 
-	history := readChatHistory(room.roomID)
+	r.numOfChatter++
+	r.chatters = append(r.chatters, ch)
+	ch.connectedTo = r.roomID
 
-	if history != "" {
-		fmt.Printf("Chat history for room %d:\n%s\n", room.roomID, history)
-	} else {
-		fmt.Printf("No chat history found for room %d\n", room.roomID)
+	hist := readChatHistory(r.roomID)
+	if hist != "" {
+		fmt.Printf("Loaded history for room %d (%d bytes)\n", r.roomID, len(hist))
 	}
 
-	fmt.Printf("Chatter %d joined room %d\n", chatter.UUID, room.roomID)
+	fmt.Printf("Chatter %s joined room %d (%d/%d)\n",
+		ch.UUID, r.roomID, r.numOfChatter, r.capacity)
 }
 
-func isRoomFull(room *Room) bool {
-	return room.numOfChatter >= room.capacity
+func roomExists(roomID int) bool {
+	_, exists := server.rooms[roomID]
+	return exists
+}
+
+// isRoomFull returns true when the live population == capacity.
+func isRoomFull(r *Room) bool {
+	return r.numOfChatter >= r.capacity
 }

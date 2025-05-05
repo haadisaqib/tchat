@@ -8,15 +8,22 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/gorilla/websocket"
 )
 
+
 type Chatter struct {
-	UUID         int
-	DisplayName  string
-	connectedTo  int
+	UUID        string
+	DisplayName string
+	connectedTo int
+
+	// ↓ add these two lines back in
 	tempChoice   string
 	tempRoomData string
-	Conn         net.Conn
+
+	Conn   net.Conn
+	WsConn *websocket.Conn
 }
 
 type ChatMessage struct {
@@ -25,76 +32,68 @@ type ChatMessage struct {
 	Timestamp string `json:"timestamp"`
 }
 
-func newChatter(uuid int, name string, conn net.Conn) *Chatter {
+// --- helpers -------------------------------------------------------------
+
+func newChatter(uuid, name string, conn net.Conn) *Chatter {
 	if _, exists := server.chatters[uuid]; exists {
-		fmt.Fprintf(conn, "Duplicate UUID detected. You are already connected.\n")
+		if conn != nil {
+			fmt.Fprintln(conn, "Duplicate UUID detected. You are already connected.")
+		}
 		return nil
 	}
-	return &Chatter{
-		UUID:        uuid,
-		DisplayName: name,
-		connectedTo: 0,
-		Conn:        conn,
-	}
+	return &Chatter{UUID: uuid, DisplayName: name, Conn: conn}
 }
 
-func UUIDgenerator(conn net.Conn) int {
-	ip := conn.RemoteAddr()
-	ipString := ip.String()
-	lastColon := strings.LastIndex(ipString, ":")
-	if lastColon != -1 {
-		ipString = ipString[:lastColon]
+// Fallback UUID for non‑browser callers (rare)
+func UUIDgenerator(addr string) string {
+	ip := addr
+	if i := strings.LastIndex(ip, ":"); i != -1 {
+		ip = ip[:i]
 	}
-	ipString = strings.Trim(ipString, "[]")
-	ipWithoutPeriods := strings.ReplaceAll(ipString, ".", "")
-	// Convert the ipwithout periods to an integer
-	ipInt, err := strconv.Atoi(ipWithoutPeriods)
+	ip = strings.Trim(ip, "[]")
+	ipNoDots := strings.ReplaceAll(ip, ".", "")
+	n, err := strconv.Atoi(ipNoDots)
 	if err != nil {
-		fmt.Println("Error converting IP to integer:", err)
-		return 0
+		return strconv.Itoa(int(time.Now().UnixNano()))
 	}
-	// Check if the integer is even or odd
-	if ipInt%2 == 0 {
-		ipInt += 10
+	if n%2 == 0 {
+		n += 10
 	} else {
-		ipInt += 11
+		n += 11
 	}
-	return ipInt
+	return strconv.Itoa(n)
 }
 
-// example:
-//127.0.0.1 = 127001 % 2 == 1 therefore + 11 = 127012
-//198.1.168.254 = 1981168254 % 2 == 0 therefore + 10 = 1981168264
-//10.10.10 = 101010 % 2 == 0 therefore + 10 = 101020
+// --- message persistence/broadcast --------------------------------------
 
 func saveMessageToRoom(roomID int, msg ChatMessage) {
 	path := fmt.Sprintf("./rooms/%d.json", roomID)
 
-	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		fmt.Println("Failed to open chat history:", err)
 		return
 	}
-	defer file.Close()
+	defer f.Close()
 
-	jsonBytes, _ := json.Marshal(msg)
-	file.Write(jsonBytes)
-	file.Write([]byte("\n"))
+	b, _ := json.Marshal(msg)
+	f.Write(b)
+	f.Write([]byte("\n"))
 }
 
-func sendMessage(chatter *Chatter, room *Room, messageText string) {
-	msg := ChatMessage{
-		Sender:    chatter.DisplayName,
-		Message:   messageText,
-		Timestamp: time.Now().Format(time.RFC3339),
-	}
-
+// Legacy TCP helper (still useful in tests)
+func sendMessage(ch *Chatter, room *Room, text string) {
+	msg := ChatMessage{Sender: ch.DisplayName, Message: text, Timestamp: time.Now().Format(time.RFC3339)}
 	saveMessageToRoom(room.roomID, msg)
 
 	for _, c := range room.chatters {
-		if c.UUID != chatter.UUID {
-			formatted := fmt.Sprintf("%s: %s", msg.Sender, msg.Message)
-			fmt.Fprintln(c.Conn, formatted)
+		if c.UUID == ch.UUID {
+			continue
+		}
+		if c.WsConn != nil {
+			_ = c.WsConn.WriteJSON(struct{ From, Text string }{From: msg.Sender, Text: msg.Message})
+		} else if c.Conn != nil {
+			fmt.Fprintln(c.Conn, msg.Sender+": "+msg.Message)
 		}
 	}
 }
