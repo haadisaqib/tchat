@@ -1,9 +1,13 @@
 package main
 
 import (
+	"bufio"
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 )
 
 func GetOrCreateChatHistory(roomID int) (string, error) {
@@ -58,6 +62,45 @@ func deleteChatHistory(roomID int) {
 	fmt.Printf("Room %d deleted (file removed)\n", roomID)
 }
 
+
+// writeToJson appends a ChatMessage as a single JSON line to ./rooms/{roomID}.json
+func writeToJson(roomID int, msg ChatMessage) error {
+	path := fmt.Sprintf("./rooms/%d.json", roomID)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	b, err := json.Marshal(msg)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(append(b, '\n')); err != nil {
+		return err
+	}
+	return nil
+}
+
+// readHistory returns all ChatMessages from ./rooms/{roomID}.json
+func readHistory(roomID int) ([]ChatMessage, error) {
+	path := fmt.Sprintf("./rooms/%d.json", roomID)
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	var msgs []ChatMessage
+	for scanner.Scan() {
+		var cm ChatMessage
+		if err := json.Unmarshal(scanner.Bytes(), &cm); err == nil {
+			msgs = append(msgs, cm)
+		}
+	}
+	return msgs, scanner.Err()
+}
+
 func readChatHistory(roomID int) string {
 	//Check if roomID.json exists in  ./rooms
 	file, err := os.Open("./rooms")
@@ -85,4 +128,40 @@ func readChatHistory(roomID int) string {
 		}
 	}
 	return ""
+}
+
+// historyHandler streams the ./rooms/{roomID}.json file as a JSON array.
+func historyHandler(w http.ResponseWriter, r *http.Request) {
+	// Expects: /history?roomId=12345
+	q := r.URL.Query().Get("roomId")
+	id, err := strconv.Atoi(q)
+	if err != nil {
+		http.Error(w, "invalid roomId", http.StatusBadRequest)
+		return
+	}
+
+	path := fmt.Sprintf("./rooms/%d.json", id)
+	file, err := os.Open(path)
+	if err != nil {
+		http.Error(w, "history not found", http.StatusNotFound)
+		return
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	var msgs []ChatMessage
+	for scanner.Scan() {
+		var cm ChatMessage
+		if err := json.Unmarshal(scanner.Bytes(), &cm); err == nil {
+			msgs = append(msgs, cm)
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(msgs)
+}
+
+func init() {
+	// register the HTTP endpoint alongside your WebSocket
+	http.HandleFunc("/history", historyHandler)
 }

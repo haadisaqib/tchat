@@ -1,8 +1,7 @@
+// ws_server.go
 package main
 
 import (
-	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -13,21 +12,28 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-/* payloads from / to client */
 type initPayload struct {
-	Type        string `json:"type"` // must be "init"
-	ID          string `json:"id"`   // browser‑generated UUID
+	Type        string `json:"type"`
+	ID          string `json:"id"`
 	DisplayName string `json:"displayName"`
-	Choice      string `json:"choice"`   // "1" create, "2" join
-	RoomData    string `json:"roomData"` // capacity or roomID
+	Choice      string `json:"choice"`
+	RoomData    string `json:"roomData"`
 }
-type chatPayload struct{ Type, Text string }
-type outgoing struct{ From, Text string }
+type chatPayload struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+type responsePayload struct {
+	Type    string      `json:"type"`
+	Event   string      `json:"event"`
+	Payload interface{} `json:"payload"`
+}
+type errorPayload struct {
+	Type    string `json:"type"`
+	Message string `json:"message"`
+}
 
-/* upgrader */
 var upgrader = websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
-
-/* ---------------- WS handler ---------------- */
 
 func wsHandler(w http.ResponseWriter, r *http.Request) {
 	ws, err := upgrader.Upgrade(w, r, nil)
@@ -37,7 +43,6 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer ws.Close()
 
-	/* ---------- handshake ---------- */
 	var hello initPayload
 	if err := ws.ReadJSON(&hello); err != nil || hello.Type != "init" {
 		log.Println("bad init:", err)
@@ -47,86 +52,96 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 		hello.ID = uuid.New().String()
 	}
 	if _, dup := server.chatters[hello.ID]; dup {
-		_ = ws.WriteJSON(outgoing{From: "system", Text: "duplicate‑uuid"})
+		_ = ws.WriteJSON(errorPayload{Type: "error", Message: "duplicate-uuid"})
 		return
 	}
-	ch := &Chatter{UUID: hello.ID, DisplayName: hello.DisplayName, WsConn: ws}
-	server.chatters[ch.UUID] = ch
+	chatter := &Chatter{UUID: hello.ID, DisplayName: hello.DisplayName, WsConn: ws}
+	server.chatters[chatter.UUID] = chatter
 
-	/* ---------- room create / join ---------- */
 	var room *Room
-
 	switch hello.Choice {
-	case "1": // create
+	case "1":
 		cap, _ := strconv.Atoi(hello.RoomData)
 		if cap < 1 || cap > 20 {
-			_ = ws.WriteJSON(outgoing{From: "system", Text: "invalid‑capacity"})
+			_ = ws.WriteJSON(errorPayload{Type: "error", Message: "invalid-capacity"})
 			return
 		}
 		room = newRoom(cap)
 		server.rooms[room.roomID] = room
 
-		case "2": // JOIN an existing room
+	case "2":
 		rid, _ := strconv.Atoi(hello.RoomData)
-	
-		if !roomExists(rid) {                      // <─ NEW helper you added
-			ws.WriteJSON(outgoing{From: "system", Text: "room-not-found"})
+		if !roomExists(rid) {
+			_ = ws.WriteJSON(errorPayload{Type: "error", Message: "room-not-found"})
 			return
 		}
-	
 		rm := server.rooms[rid]
 		if isRoomFull(rm) {
-			ws.WriteJSON(outgoing{From: "system", Text: "room-full"})
+			_ = ws.WriteJSON(errorPayload{Type: "error", Message: "room-full"})
 			return
 		}
-	
 		room = rm
+
 	default:
-		_ = ws.WriteJSON(outgoing{From: "system", Text: "invalid‑choice"})
+		_ = ws.WriteJSON(errorPayload{Type: "error", Message: "invalid-choice"})
 		return
 	}
 
-	joinRoom(room, ch)
+	joinRoom(room, chatter)
 
-	/* ---------- confirmation + history ---------- */
-	_ = ws.WriteJSON(outgoing{From: "system", Text: fmt.Sprintf("joined‑room %d", room.roomID)})
+	// send joined confirmation
+	_ = ws.WriteJSON(responsePayload{
+		Type:    "response",
+		Event:   "joined",
+		Payload: map[string]interface{}{"roomID": room.roomID},
+	})
 
-	if hist := readChatHistory(room.roomID); hist != "" {
-		lines := strings.Split(strings.TrimSpace(hist), "\n")
-		for _, ln := range lines {
-			var cm ChatMessage
-			if err := json.Unmarshal([]byte(ln), &cm); err == nil {
-				_ = ws.WriteJSON(outgoing{From: cm.Sender, Text: cm.Message})
+	// send chat history
+	history, err := readHistory(room.roomID)
+	if err == nil {
+		for _, cm := range history {
+			_ = ws.WriteJSON(responsePayload{
+				Type:  "response",
+				Event: "history",
+				Payload: map[string]string{
+					"from": cm.Sender,
+					"text": cm.Message,
+				},
+			})
+		}
+	}
+
+	// live chat loop
+	for {
+		var msg chatPayload
+		if err := ws.ReadJSON(&msg); err != nil {
+			break
+		}
+		if msg.Type == "message" && strings.TrimSpace(msg.Text) != "" {
+			// persist
+			cm := ChatMessage{Sender: chatter.DisplayName, Message: msg.Text, Timestamp: time.Now().Format(time.RFC3339)}
+			_ = writeToJson(room.roomID, cm)
+
+			// broadcast
+			out := responsePayload{
+				Type:  "response",
+				Event: "message",
+				Payload: map[string]string{
+					"from": cm.Sender,
+					"text": cm.Message,
+				},
+			}
+			for _, c := range room.chatters {
+				if c.WsConn != nil && c.UUID != chatter.UUID {
+					_ = c.WsConn.WriteJSON(out)
+				}
 			}
 		}
 	}
 
-	/* ---------- live chat loop ---------- */
-	for {
-		var msg chatPayload
-		if err := ws.ReadJSON(&msg); err != nil { // client disconnect
-			break
-		}
-		if msg.Type == "message" && strings.TrimSpace(msg.Text) != "" {
-			broadcast(room, ch.DisplayName, msg.Text)
-		}
-	}
-
-	handleDisconnect(ch, room)
+	handleDisconnect(chatter, room)
 }
 
-/* broadcast to every chatter in the room */
-func broadcast(room *Room, from, text string) {
-	out := outgoing{From: from, Text: text}
-	for _, c := range room.chatters {
-		if c.WsConn != nil {
-			_ = c.WsConn.WriteJSON(out)
-		}
-	}
-	saveMessageToRoom(room.roomID, ChatMessage{Sender: from, Message: text, Timestamp: time.Now().Format(time.RFC3339)})
-}
-
-/* single entry‑point */
 func main() {
 	http.HandleFunc("/ws", wsHandler)
 	log.Println("[ws] listening on :9002")
