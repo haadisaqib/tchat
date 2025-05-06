@@ -132,7 +132,7 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 				},
 			}
 			for _, c := range room.chatters {
-				if c.WsConn != nil && c.UUID != chatter.UUID {
+				if c.WsConn != nil {
 					_ = c.WsConn.WriteJSON(out)
 				}
 			}
