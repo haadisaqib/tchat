@@ -3,14 +3,14 @@ import React, { useState, useRef, useEffect } from "react";
 import ChatRoom from "./ChatRoom.jsx";
 
 const isLocal = window.location.hostname === "localhost";
-// WebSocket URL
+
 const WS_URL = isLocal
   ? "ws://localhost:9002/ws/"
-  : "wss://testingchat.duckdns.org/ws/";
+  : "wss://managing-roland-staffing-experienced.trycloudflare.com/ws/";
 
 const HTTP_URL = isLocal
   ? "http://localhost:9002"
-  : "https://testingchat.duckdns.org";
+  : "https://managing-roland-staffing-experienced.trycloudflare.com";
 
 export default function App() {
   const [displayName, setDisplayName] = useState("");
