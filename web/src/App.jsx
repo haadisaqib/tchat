@@ -3,13 +3,14 @@ import React, { useState, useRef, useEffect } from "react";
 import ChatRoom from "./ChatRoom.jsx";
 
 const isLocal = window.location.hostname === "localhost";
+// WebSocket URL
 const WS_URL = isLocal
   ? "ws://localhost:9002/ws"
-  : `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}/ws`;
-
+  : "wss://testingchat.duckdns.org/ws";
+// REST API URL
 const HTTP_URL = isLocal
   ? "http://localhost:9002"
-  : `${window.location.protocol}//${window.location.host}`;
+  : "https://testingchat.duckdns.org";
 
 export default function App() {
   const [displayName, setDisplayName] = useState("");
@@ -25,7 +26,7 @@ export default function App() {
 
   const wsRef = useRef(null);
 
-  // Fetch server stats every 2s
+  // Poll the chatter-count endpoint every 2 seconds
   useEffect(() => {
     const interval = setInterval(() => {
       fetch(`${HTTP_URL}/chatter-count`)
@@ -67,10 +68,10 @@ export default function App() {
       }
 
       if (msg.type === "response" && msg.event === "message") {
-        setMessages(prev => [...prev, {
-          from: msg.payload.from,
-          text: msg.payload.text
-        }]);
+        setMessages(prev => [
+          ...prev,
+          { from: msg.payload.from, text: msg.payload.text }
+        ]);
         return;
       }
 
@@ -96,21 +97,38 @@ export default function App() {
               Total Chatters: {chatterCount}
             </p>
             <p style={{ fontSize: '0.6em', marginTop: '5px' }}>
-              written in GO by <a href="https://haadisaqib.github.io/" style={{ fontSize: 'inherit', color: '#88c0d0' }}>Haadi S.</a>
+              written in GO by{" "}
+              <a
+                href="https://haadisaqib.github.io/"
+                style={{ fontSize: 'inherit', color: '#88c0d0' }}
+              >
+                Haadi S.
+              </a>
             </p>
           </div>
 
           <label>Display Name</label>
-          <input value={displayName} onChange={e => setDisplayName(e.target.value)} />
+          <input
+            value={displayName}
+            onChange={e => setDisplayName(e.target.value)}
+          />
 
           <label>Choose</label>
-          <select value={choice} onChange={e => setChoice(e.target.value)}>
+          <select
+            value={choice}
+            onChange={e => setChoice(e.target.value)}
+          >
             <option value="1">Create Room</option>
             <option value="2">Join Room</option>
           </select>
 
-          <label>{choice === "1" ? "Room Capacity (1–20)" : "Room ID"}</label>
-          <input value={roomData} onChange={e => setRoomData(e.target.value)} />
+          <label>
+            {choice === "1" ? "Room Capacity (1–20)" : "Room ID"}
+          </label>
+          <input
+            value={roomData}
+            onChange={e => setRoomData(e.target.value)}
+          />
 
           <button onClick={handleConnect}>Connect</button>
         </div>
