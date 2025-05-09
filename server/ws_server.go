@@ -92,24 +92,22 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 
 	joinRoom(room, chatter)
 
+	// Send confirmation to new client
 	_ = ws.WriteJSON(responsePayload{
 		Type:    "response",
 		Event:   "joined",
 		Payload: map[string]interface{}{"roomID": room.roomID},
 	})
 
-	if history, err := readHistory(room.roomID); err == nil {
-		for _, cm := range history {
-			_ = ws.WriteJSON(responsePayload{
-				Type:  "response",
-				Event: "history",
-				Payload: map[string]string{
-					"from": cm.Sender,
-					"text": cm.Message,
-				},
-			})
-		}
-	}
+	// 🔥 Send room occupancy to JUST the new user
+	_ = ws.WriteJSON(responsePayload{
+		Type:  "response",
+		Event: "occupancy",
+		Payload: map[string]int{
+			"current": room.numOfChatter,
+			"max":     room.capacity,
+		},
+	})
 
 	for {
 		var msg chatPayload
@@ -143,32 +141,38 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 	handleDisconnect(chatter, room)
 }
 
-func main() {
-	// REST endpoint: GET /chatter-count
-	http.HandleFunc("/chatter-count", func(w http.ResponseWriter, r *http.Request) {
-		// Allow cross-origin requests for development
-		w.Header().Set("Access-Control-Allow-Origin", "*") // Or limit to "http://localhost:5173"
-		w.Header().Set("Access-Control-Allow-Methods", "GET")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-
-		if r.Method == http.MethodOptions {
-			// Handle preflight requests
-			w.WriteHeader(http.StatusOK)
-			return
+func broadcastRoomOccupancy(room *Room) {
+	out := responsePayload{
+		Type:  "response",
+		Event: "occupancy",
+		Payload: map[string]int{
+			"current": room.numOfChatter,
+			"max":     room.capacity,
+		},
+	}
+	for _, c := range room.chatters {
+		if c.WsConn != nil {
+			_ = c.WsConn.WriteJSON(out)
 		}
+	}
+}
+
+func main() {
+	http.HandleFunc("/chatter-count", func(w http.ResponseWriter, r *http.Request) {
+		// 👇 CORS fix
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Content-Type", "application/json")
 
 		cnt, err := getChatterCount()
 		if err != nil {
 			http.Error(w, "couldn't read counter", 500)
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]int{"count": cnt})
 	})
 
-	// WebSocket endpoint
 	http.HandleFunc("/ws", wsHandler)
 
 	log.Println("[ws] listening on :9002")
-	log.Fatal(http.ListenAndServe("127.0.0.1:9002", nil))
+	log.Fatal(http.ListenAndServe(":9002", nil))
 }

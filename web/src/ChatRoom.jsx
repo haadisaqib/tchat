@@ -1,22 +1,33 @@
-// src/ChatRoom.jsx
 import { useState, useEffect, useRef } from "react";
 
 export default function ChatRoom({ ws, displayName, roomId }) {
   const [messages, setMessages] = useState([]);
+  const [occupancy, setOccupancy] = useState(null); // { current: 2, max: 12 }
   const inputRef = useRef();
   const endRef = useRef();
 
   useEffect(() => {
     if (!ws) return;
+
     const onMsg = ev => {
       const msg = JSON.parse(ev.data);
-      if (msg.type === "response" && (msg.event === "history" || msg.event === "message")) {
-        setMessages(prev =>
-          [...prev, { from: msg.payload.from, text: msg.payload.text }]
-            .slice(-100) 
-        );
+
+      if (msg.type === "response") {
+        if (msg.event === "message" || msg.event === "history") {
+          setMessages(prev =>
+            [...prev, { from: msg.payload.from, text: msg.payload.text }].slice(-100)
+          );
+        }
+
+        if (msg.event === "occupancy") {
+          setOccupancy({
+            current: msg.payload.current,
+            max: msg.payload.max
+          });
+        }
       }
     };
+
     ws.addEventListener("message", onMsg);
     return () => ws.removeEventListener("message", onMsg);
   }, [ws]);
@@ -36,7 +47,13 @@ export default function ChatRoom({ ws, displayName, roomId }) {
     <div className="chat-wrapper">
       <header className="chat-header">
         Room #{roomId} — {displayName}
+        {occupancy && (
+          <span style={{ float: "right", fontSize: "0.9em", color: "#999" }}>
+            {occupancy.current}/{occupancy.max}
+          </span>
+        )}
       </header>
+
       <div className="messages">
         {messages.map((m, i) => (
           <p key={i} className={m.from === displayName ? "me" : ""}>
@@ -45,6 +62,7 @@ export default function ChatRoom({ ws, displayName, roomId }) {
         ))}
         <div ref={endRef} />
       </div>
+
       <div className="chat-input">
         <input
           ref={inputRef}

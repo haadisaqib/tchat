@@ -1,3 +1,4 @@
+// src/App.jsx
 import React, { useState, useRef, useEffect } from "react";
 import ChatRoom from "./ChatRoom.jsx";
 
@@ -24,18 +25,7 @@ export default function App() {
 
   const wsRef = useRef(null);
 
-  // One-time fetch for initial chatter count
-  useEffect(() => {
-    const timeout = setTimeout(() => {
-      fetch(`${HTTP_URL}/chatter-count`)
-        .then(res => res.json())
-        .then(data => setChatterCount(data.count))
-        .catch(err => console.warn("Initial count fetch failed:", err));
-    }, 300);
-    return () => clearTimeout(timeout);
-  }, []);
-
-  // Realtime polling every 2 seconds
+  // Fetch server stats every 2s
   useEffect(() => {
     const interval = setInterval(() => {
       fetch(`${HTTP_URL}/chatter-count`)
@@ -73,14 +63,6 @@ export default function App() {
       if (msg.type === "response" && msg.event === "joined") {
         setRealRoomId(msg.payload.roomID);
         setJoined(true);
-        return;
-      }
-
-      if (msg.type === "response" && msg.event === "history") {
-        setMessages(prev => [...prev, {
-          from: msg.payload.from,
-          text: msg.payload.text
-        }]);
         return;
       }
 

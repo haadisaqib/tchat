@@ -67,13 +67,10 @@ func joinRoom(r *Room, ch *Chatter) {
 	r.chatters = append(r.chatters, ch)
 	ch.connectedTo = r.roomID
 
-	hist := readChatHistory(r.roomID)
-	if hist != "" {
-		fmt.Printf("Loaded history for room %d (%d bytes)\n", r.roomID, len(hist))
-	}
-
 	fmt.Printf("Chatter %s joined room %d (%d/%d)\n",
 		ch.UUID, r.roomID, r.numOfChatter, r.capacity)
+
+	broadcastRoomOccupancy(r)
 }
 
 func roomExists(roomID int) bool {
