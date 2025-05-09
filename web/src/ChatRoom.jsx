@@ -13,7 +13,7 @@ export default function ChatRoom({ ws, displayName, roomId }) {
       if (msg.type === "response" && (msg.event === "history" || msg.event === "message")) {
         setMessages(prev =>
           [...prev, { from: msg.payload.from, text: msg.payload.text }]
-            .slice(-100) // keep last 100 only
+            .slice(-100) 
         );
       }
     };

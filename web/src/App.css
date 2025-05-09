@@ -5,6 +5,10 @@
   text-align: center;
 }
 
+body {
+  font-family: 'Noto Sans Mono', monospace;
+}
+
 .logo {
   height: 6em;
   padding: 1.5em;

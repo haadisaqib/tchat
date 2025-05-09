@@ -1,42 +1,51 @@
-// src/App.jsx
 import React, { useState, useRef, useEffect } from "react";
 import ChatRoom from "./ChatRoom.jsx";
 
-// 1) WS URL (unchanged)
-const WS_URL = `ws://${window.location.hostname}:9002/ws`;
+const isLocal = window.location.hostname === "localhost";
+const WS_URL = isLocal
+  ? "ws://localhost:9002/ws"
+  : `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}/ws`;
+
+const HTTP_URL = isLocal
+  ? "http://localhost:9002"
+  : `${window.location.protocol}//${window.location.host}`;
 
 export default function App() {
-  // Step 1: form state
   const [displayName, setDisplayName] = useState("");
-  const [choice, setChoice]           = useState("1");
-  const [roomData, setRoomData]       = useState("");
+  const [choice, setChoice] = useState("1");
+  const [roomData, setRoomData] = useState("");
+  const [chatterCount, setChatterCount] = useState(0);
 
-  // Step 2: app state
-  const [joined,    setJoined]    = useState(false);
-  const [messages,  setMessages]  = useState([]);      // all chat lines
-  const [errorMsg,  setErrorMsg]  = useState("");
+  const [joined, setJoined] = useState(false);
+  const [messages, setMessages] = useState([]);
+  const [errorMsg, setErrorMsg] = useState("");
   const [showError, setShowError] = useState(false);
-
-  // **NEW**: real room ID from server (not capacity)
   const [realRoomId, setRealRoomId] = useState(null);
 
   const wsRef = useRef(null);
 
-  // --- NEW: fetch full history via HTTP ---
-  const loadChatHistory = async (roomId) => {
-    try {
-      const res = await fetch(`${HTTP_HISTORY_URL}?roomId=${roomId}`);
-      if (!res.ok) throw new Error("no history");
-      const data = await res.json(); // array of {Sender,Message,...}
-      // normalize into the shape your ChatRoom expects:
-      const hist = data.map(m => ({ from: m.Sender, text: m.Message }));
-      setMessages(hist);
-    } catch (e) {
-      console.warn("Could not load history:", e);
-    }
-  };
+  // One-time fetch for initial chatter count
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      fetch(`${HTTP_URL}/chatter-count`)
+        .then(res => res.json())
+        .then(data => setChatterCount(data.count))
+        .catch(err => console.warn("Initial count fetch failed:", err));
+    }, 300);
+    return () => clearTimeout(timeout);
+  }, []);
 
-  // Step 4: connect / init payload
+  // Realtime polling every 2 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetch(`${HTTP_URL}/chatter-count`)
+        .then(res => res.json())
+        .then(data => setChatterCount(data.count))
+        .catch(err => console.warn("Polling count failed:", err));
+    }, 2000);
+    return () => clearInterval(interval);
+  }, []);
+
   const handleConnect = () => {
     if (!displayName || !roomData) {
       setErrorMsg("Fill all fields");
@@ -50,37 +59,39 @@ export default function App() {
 
     ws.onopen = () => {
       ws.send(JSON.stringify({
-        type:        "init",
-        id:          crypto.randomUUID(),
+        type: "init",
+        id: crypto.randomUUID(),
         displayName,
         choice,
-        roomData
+        roomData,
       }));
     };
 
     ws.onmessage = ev => {
       const msg = JSON.parse(ev.data);
 
-      // CASE: joined → swap to ChatRoom
       if (msg.type === "response" && msg.event === "joined") {
         setRealRoomId(msg.payload.roomID);
         setJoined(true);
         return;
       }
 
-      // CASE: history → load past messages
       if (msg.type === "response" && msg.event === "history") {
-        loadChatHistory(msg.payload.from, msg.payload.text);
+        setMessages(prev => [...prev, {
+          from: msg.payload.from,
+          text: msg.payload.text
+        }]);
         return;
       }
 
-      // CASE: new chat message
       if (msg.type === "response" && msg.event === "message") {
-        loadChatHistory(msg.payload.from, msg.payload.text);
+        setMessages(prev => [...prev, {
+          from: msg.payload.from,
+          text: msg.payload.text
+        }]);
         return;
       }
 
-      // CASE: error → modal
       if (msg.type === "error") {
         setErrorMsg(msg.message);
         setShowError(true);
@@ -93,39 +104,31 @@ export default function App() {
     };
   };
 
-  // Render: before join → form; after join → ChatRoom
   return (
     <div className="container">
       {!joined ? (
         <div className="card">
-          <h1>Tchat</h1>
+          <div>
+            <h1>Chatroom</h1>
+            <p style={{ fontSize: '0.9em', color: '#88c0d0' }}>
+              Total Chatters: {chatterCount}
+            </p>
+            <p style={{ fontSize: '0.6em', marginTop: '5px' }}>
+              written in GO by <a href="https://haadisaqib.github.io/" style={{ fontSize: 'inherit', color: '#88c0d0' }}>Haadi S.</a>
+            </p>
+          </div>
 
           <label>Display Name</label>
-          <input
-            value={displayName}
-            onChange={e => setDisplayName(e.target.value)}
-            placeholder="Alice"
-          />
+          <input value={displayName} onChange={e => setDisplayName(e.target.value)} />
 
           <label>Choose</label>
-          <select
-            value={choice}
-            onChange={e => setChoice(e.target.value)}
-          >
+          <select value={choice} onChange={e => setChoice(e.target.value)}>
             <option value="1">Create Room</option>
             <option value="2">Join Room</option>
           </select>
 
-          <label>
-            {choice === "1"
-              ? "Room Capacity (1–20)" 
-              : "Room ID"}
-          </label>
-          <input
-            value={roomData}
-            onChange={e => setRoomData(e.target.value)}
-            placeholder={choice === "1" ? "3" : "12345"}
-          />
+          <label>{choice === "1" ? "Room Capacity (1–20)" : "Room ID"}</label>
+          <input value={roomData} onChange={e => setRoomData(e.target.value)} />
 
           <button onClick={handleConnect}>Connect</button>
         </div>
@@ -138,14 +141,11 @@ export default function App() {
         />
       )}
 
-      {/* error modal */}
       {showError && (
         <div className="modal">
           <div className="modal-content">
             <p>{errorMsg}</p>
-            <button onClick={() => setShowError(false)}>
-              Close
-            </button>
+            <button onClick={() => setShowError(false)}>Close</button>
           </div>
         </div>
       )}

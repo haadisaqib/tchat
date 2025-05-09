@@ -1,7 +1,7 @@
-// ws_server.go
 package main
 
 import (
+	"encoding/json"
 	"log"
 	"net/http"
 	"strconv"
@@ -19,15 +19,18 @@ type initPayload struct {
 	Choice      string `json:"choice"`
 	RoomData    string `json:"roomData"`
 }
+
 type chatPayload struct {
 	Type string `json:"type"`
 	Text string `json:"text"`
 }
+
 type responsePayload struct {
 	Type    string      `json:"type"`
 	Event   string      `json:"event"`
 	Payload interface{} `json:"payload"`
 }
+
 type errorPayload struct {
 	Type    string `json:"type"`
 	Message string `json:"message"`
@@ -51,37 +54,37 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 	if hello.ID == "" {
 		hello.ID = uuid.New().String()
 	}
-	if _, dup := server.chatters[hello.ID]; dup {
+
+	chatter := newWsChatter(hello.ID, hello.DisplayName, ws)
+	if chatter == nil {
 		_ = ws.WriteJSON(errorPayload{Type: "error", Message: "duplicate-uuid"})
 		return
 	}
-	chatter := &Chatter{UUID: hello.ID, DisplayName: hello.DisplayName, WsConn: ws}
-	server.chatters[chatter.UUID] = chatter
+
+	_ = incrementChatterCounter()
 
 	var room *Room
 	switch hello.Choice {
 	case "1":
-		cap, _ := strconv.Atoi(hello.RoomData)
-		if cap < 1 || cap > 20 {
+		capacity, _ := strconv.Atoi(hello.RoomData)
+		if capacity < 1 || capacity > 20 {
 			_ = ws.WriteJSON(errorPayload{Type: "error", Message: "invalid-capacity"})
 			return
 		}
-		room = newRoom(cap)
+		room = newRoom(capacity)
 		server.rooms[room.roomID] = room
-
 	case "2":
 		rid, _ := strconv.Atoi(hello.RoomData)
 		if !roomExists(rid) {
 			_ = ws.WriteJSON(errorPayload{Type: "error", Message: "room-not-found"})
 			return
 		}
-		rm := server.rooms[rid]
-		if isRoomFull(rm) {
+		existing := server.rooms[rid]
+		if isRoomFull(existing) {
 			_ = ws.WriteJSON(errorPayload{Type: "error", Message: "room-full"})
 			return
 		}
-		room = rm
-
+		room = existing
 	default:
 		_ = ws.WriteJSON(errorPayload{Type: "error", Message: "invalid-choice"})
 		return
@@ -89,16 +92,13 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 
 	joinRoom(room, chatter)
 
-	// send joined confirmation
 	_ = ws.WriteJSON(responsePayload{
 		Type:    "response",
 		Event:   "joined",
 		Payload: map[string]interface{}{"roomID": room.roomID},
 	})
 
-	// send chat history
-	history, err := readHistory(room.roomID)
-	if err == nil {
+	if history, err := readHistory(room.roomID); err == nil {
 		for _, cm := range history {
 			_ = ws.WriteJSON(responsePayload{
 				Type:  "response",
@@ -111,18 +111,19 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// live chat loop
 	for {
 		var msg chatPayload
 		if err := ws.ReadJSON(&msg); err != nil {
 			break
 		}
 		if msg.Type == "message" && strings.TrimSpace(msg.Text) != "" {
-			// persist
-			cm := ChatMessage{Sender: chatter.DisplayName, Message: msg.Text, Timestamp: time.Now().Format(time.RFC3339)}
+			cm := ChatMessage{
+				Sender:    chatter.DisplayName,
+				Message:   msg.Text,
+				Timestamp: time.Now().Format(time.RFC3339),
+			}
 			_ = writeToJson(room.roomID, cm)
 
-			// broadcast
 			out := responsePayload{
 				Type:  "response",
 				Event: "message",
@@ -143,7 +144,31 @@ func wsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	// REST endpoint: GET /chatter-count
+	http.HandleFunc("/chatter-count", func(w http.ResponseWriter, r *http.Request) {
+		// Allow cross-origin requests for development
+		w.Header().Set("Access-Control-Allow-Origin", "*") // Or limit to "http://localhost:5173"
+		w.Header().Set("Access-Control-Allow-Methods", "GET")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+		if r.Method == http.MethodOptions {
+			// Handle preflight requests
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		cnt, err := getChatterCount()
+		if err != nil {
+			http.Error(w, "couldn't read counter", 500)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]int{"count": cnt})
+	})
+
+	// WebSocket endpoint
 	http.HandleFunc("/ws", wsHandler)
+
 	log.Println("[ws] listening on :9002")
-	log.Fatal(http.ListenAndServe(":9002", nil))
+	log.Fatal(http.ListenAndServe("127.0.0.1:9002", nil))
 }
