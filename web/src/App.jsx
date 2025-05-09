@@ -5,9 +5,9 @@ import ChatRoom from "./ChatRoom.jsx";
 const isLocal = window.location.hostname === "localhost";
 // WebSocket URL
 const WS_URL = isLocal
-  ? "ws://localhost:9002/ws"
-  : "wss://testingchat.duckdns.org/ws";
-// REST API URL
+  ? "ws://localhost:9002/ws/"
+  : "wss://testingchat.duckdns.org/ws/";
+
 const HTTP_URL = isLocal
   ? "http://localhost:9002"
   : "https://testingchat.duckdns.org";
