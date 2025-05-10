@@ -6,11 +6,11 @@ const isLocal = window.location.hostname === "localhost";
 
 const WS_URL = isLocal
   ? "ws://localhost:9002/ws/"
-  : "wss://managing-roland-staffing-experienced.trycloudflare.com/ws/";
+  : "wss://chat.haadi-tunnel.online/ws/";
 
 const HTTP_URL = isLocal
   ? "http://localhost:9002"
-  : "https://managing-roland-staffing-experienced.trycloudflare.com";
+  : "https://chat.haadi-tunnel.online";
 
 export default function App() {
   const [displayName, setDisplayName] = useState("");
@@ -94,7 +94,7 @@ export default function App() {
           <div>
             <h1>Chatroom</h1>
             <p style={{ fontSize: '0.9em', color: '#88c0d0' }}>
-              Total Chatters: {chatterCount}
+              Chatters created: {chatterCount}
             </p>
             <p style={{ fontSize: '0.6em', marginTop: '5px' }}>
               written in GO by{" "}

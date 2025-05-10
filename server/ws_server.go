@@ -171,7 +171,7 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]int{"count": cnt})
 	})
 
-	http.HandleFunc("/ws", wsHandler)
+	http.HandleFunc("/ws/", wsHandler)
 
 	log.Println("[ws] listening on :9002")
 	log.Fatal(http.ListenAndServe(":9002", nil))
