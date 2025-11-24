@@ -1,0 +1,16 @@
+# Ignore build artifacts
+server/main
+server/server
+*.exe
+
+# Ignore development files
+.git
+.gitignore
+README.md
+
+# Ignore web app (deployed separately on Vercel)
+web/
+
+# Ignore client (removed)
+client/
+

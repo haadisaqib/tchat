@@ -5,12 +5,12 @@ import ChatRoom from "./ChatRoom.jsx";
 const isLocal = window.location.hostname === "localhost";
 
 const WS_URL = isLocal
-  ? "ws://localhost:9002/ws/"
-  : "wss://chat.haadi-tunnel.online/ws/";
+  ? "ws://localhost:9002/ws"
+  : "wss://haadi-tunnel.online/ws";
 
 const HTTP_URL = isLocal
   ? "http://localhost:9002"
-  : "https://chat.haadi-tunnel.online";
+  : "https://haadi-tunnel.online";
 
 export default function App() {
   const [displayName, setDisplayName] = useState("");

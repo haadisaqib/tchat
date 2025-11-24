@@ -1,0 +1,56 @@
+version: '3.8'
+
+services:
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+      target: builder
+    container_name: tchat-web-builder
+    volumes:
+      - web-dist:/output
+    command: sh -c "npm run build && cp -r dist/* /output/ && sleep infinity"
+
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: tchat-server
+    restart: unless-stopped
+    volumes:
+      # Persist chatter count across container restarts
+      - ./server/chatterCount.json:/root/chatterCount.json
+    networks:
+      - tchat-network
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: tchat-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"  # For HTTP/3 (QUIC)
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - web-dist:/web/dist
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - tchat-network
+    depends_on:
+      - web
+      - server
+
+networks:
+  tchat-network:
+    driver: bridge
+
+volumes:
+  web-dist:
+    # Persistent storage for built web app
+  caddy_data:
+    # Persistent storage for SSL certificates
+  caddy_config:
+    # Persistent storage for Caddy configuration
+
