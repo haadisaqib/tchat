@@ -1,11 +1,7 @@
 haadi-tunnel.online {
 	# Reverse proxy WebSocket endpoint (must come first)
 	handle /ws {
-		reverse_proxy server:9002 {
-			# Enable WebSocket support
-			header_up Upgrade {http.upgrade}
-			header_up Connection {http.connection}
-		}
+		reverse_proxy server:9002
 	}
 
 	# Reverse proxy REST API endpoint
