@@ -18,7 +18,6 @@ services:
     container_name: tchat-server
     restart: unless-stopped
     volumes:
-      # Persist chatter count across container restarts
       - ./server/chatterCount.json:/root/chatterCount.json
     networks:
       - tchat-network
@@ -30,7 +29,6 @@ services:
     ports:
       - "80:80"
       - "443:443"
-      - "443:443/udp"  # For HTTP/3 (QUIC)
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile
       - web-dist:/web/dist
@@ -42,15 +40,24 @@ services:
       - web
       - server
 
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: tchat-tunnel
+    restart: unless-stopped
+    # The environment variable is pulled from your .env file
+    environment:
+      - CLOUDFLARE_TOKEN=${CLOUDFLARE_TOKEN}
+    command: tunnel --no-autoupdate run
+    networks:
+      - tchat-network
+    depends_on:
+      - caddy
+
 networks:
   tchat-network:
     driver: bridge
 
 volumes:
   web-dist:
-    # Persistent storage for built web app
   caddy_data:
-    # Persistent storage for SSL certificates
   caddy_config:
-    # Persistent storage for Caddy configuration
-
