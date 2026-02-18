@@ -24,19 +24,6 @@ services:
     depends_on:
       - server
 
-  tunnel:
-    image: cloudflare/cloudflared:latest
-    container_name: tchat-tunnel
-    restart: unless-stopped
-    # The environment variable is pulled from your .env file
-    environment:
-      - CLOUDFLARE_TOKEN=${CLOUDFLARE_TOKEN}
-    command: tunnel --no-autoupdate run
-    networks:
-      - tchat-network
-    depends_on:
-      - caddy
-
 networks:
   tchat-network:
     driver: bridge
