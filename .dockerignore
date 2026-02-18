@@ -8,9 +8,4 @@ server/server
 .gitignore
 README.md
 
-# Ignore web app (deployed separately on Vercel)
-web/
-
-# Ignore client (removed)
-client/
 

@@ -1,43 +1,27 @@
 version: '3.8'
 
 services:
-  web:
-    build:
-      context: ./web
-      dockerfile: Dockerfile
-      target: builder
-    container_name: tchat-web-builder
-    volumes:
-      - web-dist:/output
-    command: sh -c "npm run build && cp -r dist/* /output/ && sleep infinity"
-
   server:
     build:
-      context: ./server
+      context: .
       dockerfile: Dockerfile
     container_name: tchat-server
     restart: unless-stopped
     volumes:
-      - ./server/chatterCount.json:/root/chatterCount.json
+      - ./server/chatterCount.json:/app/chatterCount.json
     networks:
       - tchat-network
 
-  caddy:
-    image: caddy:2-alpine
-    container_name: tchat-caddy
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: tchat-tunnel
     restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile
-      - web-dist:/web/dist
-      - caddy_data:/data
-      - caddy_config:/config
+    environment:
+      - CLOUDFLARE_TOKEN=${CLOUDFLARE_TOKEN}
+    command: tunnel --no-autoupdate run
     networks:
       - tchat-network
     depends_on:
-      - web
       - server
 
   tunnel:
@@ -56,8 +40,3 @@ services:
 networks:
   tchat-network:
     driver: bridge
-
-volumes:
-  web-dist:
-  caddy_data:
-  caddy_config:

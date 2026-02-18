@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -159,7 +161,6 @@ func broadcastRoomOccupancy(room *Room) {
 
 func main() {
 	http.HandleFunc("/chatter-count", func(w http.ResponseWriter, r *http.Request) {
-		// 👇 CORS fix
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Content-Type", "application/json")
 
@@ -173,6 +174,24 @@ func main() {
 
 	http.HandleFunc("/ws", wsHandler)
 
-	log.Println("[ws] listening on :9002")
-	log.Fatal(http.ListenAndServe(":9002", nil))
+	staticDir := os.Getenv("STATIC_DIR")
+	if staticDir != "" {
+		fs := http.FileServer(http.Dir(staticDir))
+		http.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			path := filepath.Join(staticDir, r.URL.Path)
+			if f, err := os.Stat(path); err == nil && !f.IsDir() {
+				fs.ServeHTTP(w, r)
+				return
+			}
+			r.URL.Path = "/"
+			fs.ServeHTTP(w, r)
+		}))
+	}
+
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	log.Println("[server] listening on :" + port)
+	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
